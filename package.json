@@ -1,0 +1,19 @@
+{
+  "name": "dev-team-kit",
+  "version": "0.1.0",
+  "description": "Claude Code subagent team (lead + 7 role bots) installable into any project",
+  "type": "module",
+  "bin": {
+    "dev-team-kit": "bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "kit"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
