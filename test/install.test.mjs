@@ -6,7 +6,8 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { install, mergeSettings, kitFiles, OBSERVE_MARK } from '../bin/cli.mjs';
 
-const quiet = { log: () => {}, version: 'test' };
+const emptyHome = fs.mkdtempSync(path.join(os.tmpdir(), 'dtk-home-'));
+const quiet = { log: () => {}, version: 'test', env: { CLAUDE_CONFIG_DIR: emptyHome } };
 
 function tmpProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dtk-'));
@@ -115,8 +116,8 @@ test('mergeSettings keeps user hooks and permissions', () => {
     permissions: { deny: ['Bash(npm publish *)'] },
     hooks: { PreToolUse: [{ hooks: [{ type: 'command', command: 'node', args: [`x${OBSERVE_MARK}`] }] }] },
   };
-  const once = mergeSettings(existing, fragment);
-  const twice = mergeSettings(once, fragment);
+  const once = mergeSettings(existing, fragment).settings;
+  const twice = mergeSettings(once, fragment).settings;
   assert.deepEqual(twice, once);
   assert.equal(once.model, 'x');
   assert.deepEqual(once.permissions.allow, ['Bash(pnpm test)']);

@@ -23,6 +23,7 @@ node ../dev-team-kit/bin/cli.mjs install --target .
 
 - `--dry-run`: 바뀔 내용만 보여 줍니다.
 - `--force`: 직접 수정한 kit 파일도 덮어씁니다.
+- `--statusline=wrap|skip`, `--refresh-interval=<초>`: [플랜 사용량 statusLine](#플랜-사용량-statusline) 참고.
 
 설치 후:
 1. Claude Code에서 `/team-init`을 실행합니다. 저장소를 읽고 `profile.md` 초안을 만든 뒤 승인을 받습니다.
@@ -107,6 +108,51 @@ node ../dev-team-kit/bin/cli.mjs install --target .
 - `AGENT_OBSERVER_DEBUG=1`: 보낼 내용을 stderr로 출력
 - `AGENT_OBSERVER_DISABLE=1`: 끄기
 
+## 플랜 사용량 statusLine
+
+Claude 구독 플랜의 5시간·주간 한도 사용률을 관찰 서버로 보냅니다. 이 값은 hook에는 없고 statusLine 명령의 입력(`rate_limits`)에만 들어오므로 `.claude/team/observe/statusline.mjs`를 statusLine으로 등록합니다.
+
+- **구독 계정만**: `rate_limits`는 claude.ai Pro·Max·Ultra 구독자에게만, 그리고 세션의 첫 응답 이후에만 들어옵니다. API 키로 쓰면 아무것도 보내지 않습니다.
+- **보내는 것**: `five_hour`·`seven_day` 각각의 `used_percentage`, `resets_at`, 보낸 시각, 클라우드 세션 여부. 작업 폴더, 세션 ID, transcript 경로, 모델, 비용은 보내지 않습니다.
+  ```json
+  { "v": 1, "ts": "2026-11-11T10:00:01.234Z", "remote": false,
+    "rate_limits": { "five_hour": { "used_percentage": 42, "resets_at": 1794398400 },
+                     "seven_day": { "used_percentage": 13, "resets_at": 1794700800 } } }
+  ```
+- **보내는 곳**: `POST {AGENT_OBSERVER_URL}/api/plan-usage/report`. 환경 변수는 hook과 같습니다(`AGENT_OBSERVER_URL`, `AGENT_OBSERVER_TOKEN`, `AGENT_OBSERVER_DISABLE`, `AGENT_OBSERVER_DEBUG`).
+- **보내는 간격**: 값이 바뀌었을 때만, 같은 PC에서 최대 1분에 1회. 값이 그대로면 10분마다 한 번 다시 보냅니다. 상태는 임시 폴더의 `dev-team-kit-observe/plan-usage.json`에 둡니다.
+- **화면을 막지 않음**: 전송은 분리된 자식 프로세스가 하고, 상태 줄 출력은 전송을 기다리지 않습니다. 어떤 오류가 나도 exit 0입니다.
+
+### 설치 시 동작
+
+| 프로젝트 `.claude/settings.json`의 statusLine | 설치기 |
+|---|---|
+| 없음 | kit 명령을 넣습니다. 기본 출력은 `5h 42% · 7d 13%` 한 줄입니다 |
+| 이미 kit 명령 | 그대로 둡니다(명령 문자열만 최신 형식으로) |
+| 다른 명령 | 감싸기: 확인을 받은 뒤 원래 값을 `.claude/team/observe/statusline.json`에 보존하고 kit 명령으로 바꿉니다. kit 스크립트가 원래 명령을 같은 입력으로 실행해 그 출력을 그대로 보여 줍니다(2초 제한, 넘거나 실패하면 기본 한 줄) |
+| `type`이 command가 아님 | 건드리지 않습니다 |
+
+- 다른 명령이 있을 때 `--statusline` 없이 실행하면 터미널에서는 `[y/N]`으로 묻고, 터미널이 아니면(CI, Claude Code 안에서 실행 등) 건너뜁니다. `--statusline=wrap`이면 묻지 않고 감싸고, `--statusline=skip`이면 statusLine을 건드리지 않습니다.
+- **사용자 설정**(`~/.claude/settings.json`)의 statusLine은 고치지 않습니다. 프로젝트 설정이 우선이라 이 프로젝트에서는 사용자 설정의 상태 줄이 가려지는데, kit 스크립트가 실행할 때마다 그 명령을 읽어 감싸므로 원래 출력이 그대로 보입니다.
+- **`.claude/settings.local.json`**에 statusLine이 있으면 그것이 우선이라 kit 스크립트가 실행되지 않습니다. 설치기는 알림만 하고 이 파일을 고치지 않습니다.
+- `statusline.json`은 커밋하세요. 같은 저장소를 쓰는 다른 PC와 클라우드 세션에서도 원래 상태 줄이 보이게 됩니다.
+- `--refresh-interval=<초>`: statusLine을 N초마다 다시 실행합니다. 세션이 한가하면 statusLine이 실행되지 않아 서버에서 값이 오래된 것으로 보일 수 있는데, 이를 막습니다. 기본으로는 넣지 않습니다.
+
+### 되돌리기
+
+```bash
+npx --yes github:winterairy/dev-team-kit restore-statusline
+```
+
+보존한 원래 statusLine으로 되돌리고 `statusline.json`을 지웁니다. 원래 statusLine이 없었다면 kit statusLine을 지웁니다. 손으로 하려면 settings.json의 `statusLine`을 `statusline.json`의 `wrap` 값으로 바꾸고 그 파일을 지우면 됩니다.
+
+### 로컬 관찰 서버로 보낼 때
+
+셸에 `HTTPS_PROXY`·`HTTP_PROXY`가 설정된 PC에서 `http://127.0.0.1`의 로컬 서버로 보내려면 `NO_PROXY=127.0.0.1,localhost`도 설정하세요. 전송에 쓰는 curl이 프록시 환경 변수를 따릅니다.
+
+### Windows
+Claude Code는 Windows에서 Git Bash가 있으면 Git Bash로, 없으면 PowerShell로 statusLine 명령을 실행합니다. kit 명령 `node "${CLAUDE_PROJECT_DIR:-.}/…"`은 bash 문법이라 **Git Bash가 있어야 동작합니다.** PowerShell만 있는 PC에서는 상태 줄이 비어 보일 수 있으니 `--statusline=skip`으로 설치하세요.
+
 ## 권장 스킬 (선택)
 
 없으면 각 BOT이 기본 규칙으로 작업합니다. 클라우드 세션에서 쓰려면 프로젝트의 `.claude/skills/`에 커밋되어 있거나 claude.ai에서 켜 둔 스킬이어야 합니다.
@@ -132,6 +178,7 @@ kit/                        프로젝트의 .claude/ 아래로 복사되는 파�
   team/checklists/          플랫폼별 보안·배포 점검표
   team/templates/           상태 파일, DESIGN.md 템플릿
   team/observe/observe.mjs  관찰 서버로 이벤트를 보내는 hook
+  team/observe/statusline.mjs  플랜 사용량을 보내는 statusLine
 test/                       node --test
 ```
 
@@ -145,4 +192,5 @@ npm test
 
 - 여러 저장소를 붙인 클라우드 세션과 Projects의 클라우드 스레드에서는 저장소의 hook이 실행되지 않아 관찰 이벤트가 오지 않습니다.
 - `claude -p`처럼 바로 끝나는 실행에서는 마지막 Stop 이벤트가 전송되지 않을 수 있습니다. SessionEnd는 전송됩니다.
+- statusLine은 클라우드 세션에서 실행되는지 아직 확인하지 않았습니다.
 - 서브에이전트의 토큰은 부모의 Agent 도구 호출이 끝날 때와 SubagentStop 때 집계합니다. 백그라운드로 띄운 서브에이전트는 SubagentStop 시점 값만 들어옵니다.
