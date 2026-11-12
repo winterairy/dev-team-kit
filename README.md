@@ -23,7 +23,7 @@ node ../dev-team-kit/bin/cli.mjs install --target .
 
 - `--dry-run`: 바뀔 내용만 보여 줍니다.
 - `--force`: 직접 수정한 kit 파일도 덮어씁니다.
-- `--statusline=wrap|skip`, `--refresh-interval=<초>`: [플랜 사용량 statusLine](#플랜-사용량-statusline) 참고.
+- `--statusline=wrap|skip`: [플랜 사용량 statusLine](#플랜-사용량-statusline) 참고.
 
 설치 후:
 1. Claude Code에서 `/team-init`을 실행합니다. 저장소를 읽고 `profile.md` 초안을 만든 뒤 승인을 받습니다.
@@ -120,7 +120,15 @@ Claude 구독 플랜의 5시간·주간 한도 사용률을 관찰 서버로 보
                      "seven_day": { "used_percentage": 13, "resets_at": 1794700800 } } }
   ```
 - **보내는 곳**: `POST {AGENT_OBSERVER_URL}/api/plan-usage/report`. 환경 변수는 hook과 같습니다(`AGENT_OBSERVER_URL`, `AGENT_OBSERVER_TOKEN`, `AGENT_OBSERVER_DISABLE`, `AGENT_OBSERVER_DEBUG`).
-- **보내는 간격**: 값이 바뀌었을 때만, 같은 PC에서 최대 1분에 1회. 값이 그대로면 10분마다 한 번 다시 보냅니다. 상태는 임시 폴더의 `dev-team-kit-observe/plan-usage.json`에 둡니다.
+- **보내는 간격**: 값이 바뀌었을 때만, 같은 PC에서 최대 1분에 1회. 값이 같으면 시간이 얼마나 지나도 다시 보내지 않습니다. 상태는 임시 폴더의 `dev-team-kit-observe/plan-usage.json`에 둡니다.
+- **작업 중일 때만 동작**: 세션마다 받은 입력을 직전 실행과 비교합니다. 같으면 "멈춤"으로 보고, 기존 statusLine 명령을 실행하지 않고 직전 출력을 그대로 보여 주며 보내지도 않습니다. 입력이 바뀌면(응답이 오거나 모드가 바뀌는 등) 바로 재개합니다.
+  - 비교에서 빼는 필드: `cost.total_duration_ms`(세션 경과 시간). Claude Code 2.1.322에서 한가한 동안 바뀌는 필드는 이것 하나였습니다. 나머지는 키를 정렬한 JSON 전체를 비교합니다.
+  - 이유: `rate_limits`는 API 응답 때 갱신됩니다. 한가할 때 다시 읽어도 같은 옛 값이고, 다른 세션이 일해도 이 세션의 값은 바뀌지 않았습니다.
+  - 세션별 상태는 임시 폴더의 `dev-team-kit-observe/statusline-sessions/`에 둡니다. 입력의 해시와 직전 출력만 저장하고(권한 0600), 입력 원문은 저장하지 않습니다. 24시간 넘은 파일은 지웁니다.
+- **멈춘 동안 생기는 일**
+  - 감싼 기존 statusLine의 출력이 갱신되지 않습니다. 시계, 경과 시간처럼 시간에 따라 바뀌는 내용은 멈춰 보이다가 다음 작업 때 갱신됩니다.
+  - 한가한 동안 다른 PC나 claude.ai에서 쓴 사용량은 이 세션이 다음에 작업할 때까지 반영되지 않습니다.
+- **진단**: `AGENT_OBSERVER_DEBUG=1`이면 받은 입력 원문을 임시 폴더의 `dev-team-kit-observe/statusline-stdin-<세션 키>.log`에 덧붙입니다. 작업 폴더 경로가 들어 있으니 진단이 끝나면 지우세요. 평소에는 기록하지 않습니다.
 - **화면을 막지 않음**: 전송은 분리된 자식 프로세스가 하고, 상태 줄 출력은 전송을 기다리지 않습니다. 어떤 오류가 나도 exit 0입니다.
 
 ### 설치 시 동작
@@ -136,7 +144,7 @@ Claude 구독 플랜의 5시간·주간 한도 사용률을 관찰 서버로 보
 - **사용자 설정**(`~/.claude/settings.json`)의 statusLine은 고치지 않습니다. 프로젝트 설정이 우선이라 이 프로젝트에서는 사용자 설정의 상태 줄이 가려지는데, kit 스크립트가 실행할 때마다 그 명령을 읽어 감싸므로 원래 출력이 그대로 보입니다.
 - **`.claude/settings.local.json`**에 statusLine이 있으면 그것이 우선이라 kit 스크립트가 실행되지 않습니다. 설치기는 알림만 하고 이 파일을 고치지 않습니다.
 - `statusline.json`은 커밋하세요. 같은 저장소를 쓰는 다른 PC와 클라우드 세션에서도 원래 상태 줄이 보이게 됩니다.
-- `--refresh-interval=<초>`: statusLine을 N초마다 다시 실행합니다. 세션이 한가하면 statusLine이 실행되지 않아 서버에서 값이 오래된 것으로 보일 수 있는데, 이를 막습니다. 기본으로는 넣지 않습니다.
+- 설치기는 `refreshInterval`을 넣지 않습니다. 한가할 때 다시 실행해도 멈춤으로 처리되어 하는 일이 없기 때문입니다. 원래 statusLine에 사용자가 둔 `refreshInterval`이 있으면 감쌀 때 그대로 옮깁니다.
 
 ### 되돌리기
 

@@ -2,7 +2,7 @@
 // dev-team-kit installer
 //
 //   npx --yes github:winterairy/dev-team-kit install [--target <dir>] [--force] [--dry-run]
-//                                            [--statusline=wrap|skip] [--refresh-interval=<초>]
+//                                            [--statusline=wrap|skip]
 //   npx --yes github:winterairy/dev-team-kit restore-statusline [--target <dir>]
 //
 // 각 프로젝트의 .claude/ 아래에 BOT 세트를 복사하고 .claude/settings.json에 hook, 거부 규칙,
@@ -67,10 +67,10 @@ export function isKitStatusLine(sl) {
     sl.command.replace(/\\/g, '/').includes(STATUSLINE_MARK);
 }
 
-function kitStatusLine(base, refreshInterval) {
-  const sl = { ...(base || {}), type: 'command', command: STATUSLINE_COMMAND };
-  if (refreshInterval) sl.refreshInterval = refreshInterval;
-  return sl;
+// refreshInterval is never added: the script pauses while idle, so timed re-runs would do nothing.
+// A refreshInterval the user already had (wrap/keep) is carried over through `base`.
+function kitStatusLine(base) {
+  return { ...(base || {}), type: 'command', command: STATUSLINE_COMMAND };
 }
 
 /**
@@ -79,28 +79,28 @@ function kitStatusLine(base, refreshInterval) {
  * @returns {{ statusLine: object|undefined, action: string, wrapSaved: object|null }}
  *   action: install | keep | wrap | confirm(auto라 묻기 필요, 변경 없음) | skip | unsupported
  */
-export function planStatusLine(current, { mode = 'auto', refreshInterval = null, now = new Date() } = {}) {
+export function planStatusLine(current, { mode = 'auto', now = new Date() } = {}) {
   if (mode === 'skip') return { statusLine: current, action: 'skip', wrapSaved: null };
   if (current === undefined || current === null) {
-    return { statusLine: kitStatusLine(null, refreshInterval), action: 'install', wrapSaved: null };
+    return { statusLine: kitStatusLine(null), action: 'install', wrapSaved: null };
   }
   if (typeof current !== 'object' || current.type !== 'command' || typeof current.command !== 'string') {
     return { statusLine: current, action: 'unsupported', wrapSaved: null };
   }
   if (isKitStatusLine(current)) {
-    return { statusLine: kitStatusLine(current, refreshInterval), action: 'keep', wrapSaved: null };
+    return { statusLine: kitStatusLine(current), action: 'keep', wrapSaved: null };
   }
   if (mode !== 'wrap') return { statusLine: current, action: 'confirm', wrapSaved: null };
   const { type: _t, command: _c, ...rest } = current;
   return {
-    statusLine: kitStatusLine(rest, refreshInterval),
+    statusLine: kitStatusLine(rest),
     action: 'wrap',
     wrapSaved: { v: 1, savedAt: now.toISOString(), wrap: structuredClone(current) },
   };
 }
 
 /** Merge the kit's settings fragment into existing project settings. Pure. */
-export function mergeSettings(existing, fragment, { statusLine = 'auto', refreshInterval = null, now } = {}) {
+export function mergeSettings(existing, fragment, { statusLine = 'auto', now } = {}) {
   const out = structuredClone(existing || {});
   // hooks: drop previous kit groups, then append current ones
   const hooks = out.hooks && typeof out.hooks === 'object' ? out.hooks : {};
@@ -117,7 +117,7 @@ export function mergeSettings(existing, fragment, { statusLine = 'auto', refresh
   for (const r of fragment.permissions?.deny || []) deny.add(r);
   if (deny.size) out.permissions = { ...(out.permissions || {}), deny: [...deny] };
   // statusLine: never in the fragment, handled separately so an existing one is not silently replaced
-  const sl = planStatusLine(out.statusLine, { mode: statusLine, refreshInterval, now });
+  const sl = planStatusLine(out.statusLine, { mode: statusLine, now });
   if (sl.statusLine === undefined) delete out.statusLine;
   else out.statusLine = sl.statusLine;
   return { settings: out, statusLineAction: sl.action, wrapSaved: sl.wrapSaved };
@@ -193,13 +193,13 @@ export function statusLineNotices(target, env = process.env) {
 
 export function install(target, {
   force = false, dryRun = false, kitDir = KIT_DIR, version, log = console.log,
-  statusLine = 'auto', refreshInterval = null, env = process.env,
+  statusLine = 'auto', env = process.env,
 } = {}) {
   const claudeDir = path.join(target, '.claude');
   const { actions, manifest } = planInstall(claudeDir, { force, kitDir });
   const settingsPath = path.join(claudeDir, 'settings.json');
   const fragment = JSON.parse(fs.readFileSync(path.join(kitDir, 'settings.json'), 'utf8'));
-  const merged = mergeSettings(readJson(settingsPath), fragment, { statusLine, refreshInterval });
+  const merged = mergeSettings(readJson(settingsPath), fragment, { statusLine });
   const notices = statusLineNotices(target, env);
 
   const label = { create: '추가', update: '갱신', same: '변경 없음', skip: '건너뜀', remove: '삭제', keep: '유지' };
@@ -270,7 +270,7 @@ export function restoreStatusLine(target, { dryRun = false } = {}) {
 }
 
 export function parseArgs(argv, cwd = process.cwd()) {
-  const opts = { cmd: argv[0] || 'help', target: cwd, force: false, dryRun: false, statusLine: 'auto', refreshInterval: null };
+  const opts = { cmd: argv[0] || 'help', target: cwd, force: false, dryRun: false, statusLine: 'auto' };
   for (let i = 1; i < argv.length; i++) {
     const a = argv[i];
     const [key, inline] = a.includes('=') ? [a.slice(0, a.indexOf('=')), a.slice(a.indexOf('=') + 1)] : [a, undefined];
@@ -282,10 +282,6 @@ export function parseArgs(argv, cwd = process.cwd()) {
       const v = value();
       if (v !== 'wrap' && v !== 'skip') throw new Error(`--statusline 값은 wrap 또는 skip입니다: ${v}`);
       opts.statusLine = v;
-    } else if (key === '--refresh-interval') {
-      const v = Number(value());
-      if (!Number.isInteger(v) || v < 1) throw new Error('--refresh-interval은 1 이상의 정수(초)입니다');
-      opts.refreshInterval = v;
     } else throw new Error(`알 수 없는 옵션: ${a}`);
   }
   return opts;
@@ -295,7 +291,7 @@ const HELP = `dev-team-kit
 
 사용법:
   dev-team-kit install [--target <프로젝트 폴더>] [--force] [--dry-run]
-                       [--statusline=wrap|skip] [--refresh-interval=<초>]
+                       [--statusline=wrap|skip]
   dev-team-kit restore-statusline [--target <프로젝트 폴더>] [--dry-run]
   dev-team-kit version
 
@@ -305,7 +301,6 @@ install             .claude/ 아래에 BOT 세트를 설치하거나 업데이�
   --statusline=wrap   기존 statusLine 명령을 감싸서 그대로 보여 주고 플랜 사용량을 보낸다
   --statusline=skip   statusLine을 건드리지 않는다
                       (지정하지 않으면 기존 명령이 있을 때 터미널에서 묻고, 터미널이 아니면 건너뛴다)
-  --refresh-interval  statusLine을 N초마다 다시 실행한다(세션이 한가할 때도 값이 갱신되게)
 restore-statusline  install이 바꾼 statusLine을 원래대로 되돌린다`;
 
 function ask(question) {

@@ -75,9 +75,18 @@ test('non-command type → untouched with notice action', () => {
   assert.deepEqual(r.settings.statusLine, weird);
 });
 
-test('--refresh-interval is added only when given', () => {
-  assert.equal(planStatusLine(undefined, {}).statusLine.refreshInterval, undefined);
-  assert.equal(planStatusLine(undefined, { refreshInterval: 60 }).statusLine.refreshInterval, 60);
+test('refreshInterval is never added; a user value is carried over when wrapping', () => {
+  assert.ok(!('refreshInterval' in planStatusLine(undefined, {}).statusLine));
+  assert.ok(!('refreshInterval' in mergeSettings({}, fragment).settings.statusLine));
+  const kept = mergeSettings({ statusLine: { type: 'command', command: STATUSLINE_COMMAND } }, fragment).settings.statusLine;
+  assert.ok(!('refreshInterval' in kept));
+  assert.equal(mergeSettings({ statusLine: other }, fragment, { statusLine: 'wrap' }).settings.statusLine.refreshInterval, 5);
+});
+
+test('fresh install into a temp git folder has no refreshInterval', () => {
+  const dir = project();
+  install(dir, opts());
+  assert.deepEqual(readSettings(dir).statusLine, { type: 'command', command: STATUSLINE_COMMAND });
 });
 
 // ---------- install / restore ----------
@@ -142,13 +151,12 @@ test('notices for settings.local.json and user settings, without editing them', 
 
 // ---------- CLI ----------
 
-test('parseArgs accepts --statusline and --refresh-interval in both forms and rejects bad values', () => {
+test('parseArgs accepts --statusline in both forms and rejects bad values and --refresh-interval', () => {
   assert.equal(parseArgs(['install', '--statusline=wrap']).statusLine, 'wrap');
   assert.equal(parseArgs(['install', '--statusline', 'skip']).statusLine, 'skip');
   assert.equal(parseArgs(['install']).statusLine, 'auto');
-  assert.equal(parseArgs(['install', '--refresh-interval=60']).refreshInterval, 60);
   assert.throws(() => parseArgs(['install', '--statusline=yes']));
-  assert.throws(() => parseArgs(['install', '--refresh-interval=0']));
+  assert.throws(() => parseArgs(['install', '--refresh-interval=60']), /알 수 없는 옵션/);
 });
 
 function cli(args, { via = CLI, env = {} } = {}) {

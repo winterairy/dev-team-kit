@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   extractRateLimits, decideSend, formatDefault, resolveWrapCommand, buildBody, runWrapped,
+  sessionKeyOf, inputFingerprint, pruneSessions,
 } from '../kit/team/observe/statusline.mjs';
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'kit/team/observe/statusline.mjs');
@@ -15,8 +16,10 @@ const posixOnly = { skip: process.platform === 'win32' ? 'uses POSIX shell comma
 
 const w = (p, r) => ({ used_percentage: p, resets_at: r });
 const RL = { five_hour: w(42, 1794398400), seven_day: w(13, 1794700800) };
+let seq = 0;
+// every call differs (prompt_id), so runs take the resume path unless a test reuses the same string
 const stdinWith = (rate_limits, extra = {}) => JSON.stringify({
-  session_id: 'sess-secret', cwd: '/home/me/secret-project', transcript_path: '/home/me/t.jsonl',
+  session_id: 'sess-secret', prompt_id: `p-${++seq}`, cwd: '/home/me/secret-project', transcript_path: '/home/me/t.jsonl',
   model: { id: 'claude-x', display_name: 'X' }, cost: { total_cost_usd: 1.23 }, workspace: { project_dir: '/home/me/secret-project' },
   ...(rate_limits ? { rate_limits } : {}), ...extra,
 });
@@ -36,7 +39,7 @@ test('extractRateLimits keeps only valid five_hour/seven_day windows', () => {
   assert.deepEqual(extractRateLimits({}), {});
 });
 
-test('decideSend: first, 1-minute limit, change, 10-minute resend, clock going back', () => {
+test('decideSend: first, 1-minute limit, change, no resend, clock going back', () => {
   const t0 = 1_000_000_000;
   const cur = { five_hour: w(42, 100) };
   const st = { lastSentAt: t0, lastSent: cur };
@@ -48,11 +51,12 @@ test('decideSend: first, 1-minute limit, change, 10-minute resend, clock going b
   assert.equal(decideSend(st, { five_hour: w(42, 200) }, t0 + 61_000), true, 'resets_at changed');
   assert.equal(decideSend(st, { five_hour: w(42, 100), seven_day: w(1, 9) }, t0 + 61_000), true, 'new window');
   assert.equal(decideSend(st, cur, t0 + 61_000), false, 'same after 1 min');
-  assert.equal(decideSend(st, cur, t0 + 599_999), false, 'same just before 10 min');
-  assert.equal(decideSend(st, cur, t0 + 600_000), true, 'same after 10 min');
+  assert.equal(decideSend(st, cur, t0 + 600_000), false, 'same after 10 min: no resend');
+  assert.equal(decideSend(st, cur, t0 + 24 * 3600_000), false, 'same after 24 h: no resend');
   assert.equal(decideSend({ lastSentAt: t0, lastSent: { five_hour: w(42, 100), seven_day: w(1, 9) } }, cur, t0 + 61_000), false,
     'a window that disappeared is not a change');
-  assert.equal(decideSend(st, cur, t0 - 5_000), true, 'clock went backwards → treat as long ago');
+  assert.equal(decideSend(st, { five_hour: w(43, 100) }, t0 - 5_000), true, 'clock went backwards → treat as long ago');
+  assert.equal(decideSend(st, cur, t0 - 5_000), false, 'clock went backwards, same value → still not sent');
 });
 
 test('formatDefault', () => {
@@ -161,7 +165,7 @@ const backdate = (L, ms) => {
   fs.writeFileSync(L.state, JSON.stringify(s));
 };
 
-test('sends once, respects 1-minute limit, change and 10-minute resend; body has no stdin leftovers', async () => {
+test('sends once, respects 1-minute limit and change, never resends the same value; body has no stdin leftovers', async () => {
   const srv = await receiver();
   const L = layout();
   const env = { AGENT_OBSERVER_URL: srv.url + '/', AGENT_OBSERVER_TOKEN: 'tok' };
@@ -197,9 +201,10 @@ test('sends once, respects 1-minute limit, change and 10-minute resend; body has
     await sleep(500);
     assert.equal(srv.got.length, 2);
 
-    backdate(L, 601_000);
-    await run(L, stdinWith(changed), env); // same after 10 min
-    assert.ok(await waitFor(() => srv.got.length === 3));
+    backdate(L, 24 * 3600_000);
+    await run(L, stdinWith(changed), env); // same value, last send 24 h ago
+    await sleep(500);
+    assert.equal(srv.got.length, 2);
   } finally { srv.close(); }
 });
 
@@ -280,4 +285,144 @@ test('wrapping: output unchanged and sent; failure and timeout fall back; user s
     assert.equal(r.code, 0);
     assert.equal(r.out, '5h 42% · 7d 13%\n');
   } finally { srv.close(); }
+});
+
+// ---------- pause / resume (1a) ----------
+
+test('sessionKeyOf: session_id hash, cwd fallback, no raw value in the key', () => {
+  const a = sessionKeyOf({ session_id: 'abc' }, '/x');
+  assert.match(a, /^s-[0-9a-f]{32}$/);
+  assert.equal(a, sessionKeyOf({ session_id: 'abc' }, '/y'), 'cwd ignored when session_id exists');
+  assert.notEqual(a, sessionKeyOf({ session_id: 'abd' }, '/x'));
+  assert.match(sessionKeyOf(null, '/home/me/p'), /^c-[0-9a-f]{32}$/);
+  assert.equal(sessionKeyOf({}, '/home/me/p'), sessionKeyOf(null, '/home/me/p'));
+  assert.notEqual(sessionKeyOf(null, '/home/me/p'), sessionKeyOf(null, '/home/me/q'));
+  assert.ok(sessionKeyOf({ session_id: 'x'.repeat(300) }, '/p').startsWith('c-'), 'too long → cwd');
+  assert.ok(!sessionKeyOf(null, '/home/me/p').includes('home'));
+});
+
+test('inputFingerprint ignores only cost.total_duration_ms and key order', () => {
+  const base = { session_id: 's', cost: { total_duration_ms: 1000, total_cost_usd: 1 }, rate_limits: RL };
+  const fp = inputFingerprint(JSON.stringify(base));
+  assert.equal(inputFingerprint(JSON.stringify({ ...base, cost: { total_cost_usd: 1, total_duration_ms: 99999 } })), fp);
+  assert.notEqual(inputFingerprint(JSON.stringify({ ...base, cost: { total_duration_ms: 1000, total_cost_usd: 2 } })), fp);
+  assert.notEqual(inputFingerprint(JSON.stringify({ ...base, prompt_id: 'p' })), fp);
+  assert.equal(inputFingerprint('not json'), inputFingerprint('not json'));
+  assert.notEqual(inputFingerprint('not json'), inputFingerprint('not json!'));
+});
+
+function counterWrap(dir) {
+  const counter = path.join(dir, 'count.txt');
+  return { counter, cmd: `echo x >> '${counter}'; printf 'WRAPPED\\n'` };
+}
+const count = (f) => (fs.existsSync(f) ? fs.readFileSync(f, 'utf8').split('\n').filter(Boolean).length : 0);
+const sessionsOf = (L) => path.join(L.dir, 'tmp', 'dev-team-kit-observe', 'statusline-sessions');
+
+test('same stdin → paused: wrapped command not run, previous output, no send; change → resumes', posixOnly, async () => {
+  const srv = await receiver();
+  const tmpd = tmp();
+  const { counter, cmd } = counterWrap(tmpd);
+  const L = layout({ wrap: cmd });
+  const env = { AGENT_OBSERVER_URL: srv.url };
+  try {
+    const first = stdinWith(RL);
+    let r = await run(L, first, env);
+    assert.equal(r.out, 'WRAPPED\n');
+    assert.equal(count(counter), 1);
+    assert.ok(await waitFor(() => srv.got.length === 1));
+
+    // idle: identical stdin except the elapsed time field
+    const idle = JSON.parse(first);
+    idle.cost.total_duration_ms = 999999;
+    backdate(L, 120_000); // even after the 1-minute limit, a paused run must not send
+    r = await run(L, JSON.stringify(idle), { ...env });
+    assert.equal(r.code, 0);
+    assert.equal(r.out, 'WRAPPED\n', 'previous output reprinted');
+    assert.equal(count(counter), 1, 'wrapped command not run');
+    assert.ok(!r.err.includes('"rate_limits"'));
+    await sleep(500);
+    assert.equal(srv.got.length, 1);
+
+    // work again: stdin changes → resume (runs wrapped command, sends changed value)
+    r = await run(L, stdinWith({ ...RL, five_hour: w(60, 1794398400) }), env);
+    assert.equal(count(counter), 2);
+    assert.ok(await waitFor(() => srv.got.length === 2));
+  } finally { srv.close(); }
+});
+
+test('sessions A and B are independent', posixOnly, async () => {
+  const tmpd = tmp();
+  const { counter, cmd } = counterWrap(tmpd);
+  const L = layout({ wrap: cmd });
+  const a = stdinWith(RL, { session_id: 'A' });
+  const b = stdinWith(RL, { session_id: 'B' });
+  await run(L, a); await run(L, b);
+  assert.equal(count(counter), 2);
+  await run(L, a); // A unchanged → paused even though B ran in between
+  assert.equal(count(counter), 2);
+  await run(L, stdinWith(RL, { session_id: 'B' })); // B changed
+  assert.equal(count(counter), 3);
+  await run(L, a); // A still paused
+  assert.equal(count(counter), 3);
+  assert.equal(fs.readdirSync(sessionsOf(L)).filter((n) => n.endsWith('.json')).length, 2);
+});
+
+test('no session_id → cwd is the key; non-JSON stdin is paused by its raw text', posixOnly, async () => {
+  const tmpd = tmp();
+  const { counter, cmd } = counterWrap(tmpd);
+  const L = layout({ wrap: cmd });
+  const noSid = JSON.stringify({ cwd: '/x', rate_limits: RL });
+  await run(L, noSid); await run(L, noSid);
+  assert.equal(count(counter), 1);
+  const files = fs.readdirSync(sessionsOf(L)).filter((n) => n.endsWith('.json'));
+  assert.equal(files.length, 1);
+  assert.match(files[0], /^c-[0-9a-f]{32}\.json$/);
+  await run(L, 'garbage'); await run(L, 'garbage');
+  assert.equal(count(counter), 2);
+});
+
+test('session file holds only fingerprint and output, mode 0600, no stdin text', posixOnly, async () => {
+  const L = layout({ wrap: "printf 'LINE\\n'" });
+  await run(L, stdinWith(RL), { AGENT_OBSERVER_DEBUG: '' });
+  const dir = sessionsOf(L);
+  const name = fs.readdirSync(dir).find((n) => n.endsWith('.json'));
+  const file = path.join(dir, name);
+  const body = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.deepEqual(Object.keys(body).sort(), ['at', 'fp', 'output', 'v']);
+  assert.equal(body.output, 'LINE\n');
+  const text = fs.readFileSync(file, 'utf8');
+  for (const leak of ['secret', 'sess-', 't.jsonl', 'claude-x', 'rate_limits']) assert.ok(!text.includes(leak), leak);
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  assert.ok(!fs.readdirSync(path.join(L.dir, 'tmp', 'dev-team-kit-observe')).some((n) => n.startsWith('statusline-stdin-')),
+    'no stdin log unless DEBUG');
+});
+
+test('DEBUG=1 appends stdin to statusline-stdin-<key>.log', async () => {
+  const L = layout();
+  const input = stdinWith(RL);
+  await run(L, input, { AGENT_OBSERVER_DEBUG: '1' });
+  const dir = path.join(L.dir, 'tmp', 'dev-team-kit-observe');
+  const log = fs.readdirSync(dir).find((n) => /^statusline-stdin-s-[0-9a-f]{32}\.log$/.test(n));
+  assert.ok(log);
+  const line = JSON.parse(fs.readFileSync(path.join(dir, log), 'utf8').trim());
+  assert.equal(line.raw, input);
+  assert.ok(line.t);
+});
+
+test('pruneSessions: removes files older than 24h, at most once an hour, keeps the current session', () => {
+  const dir = tmp();
+  const now = Date.now();
+  const old = (n, ageMs) => { const f = path.join(dir, n); fs.writeFileSync(f, '{}'); const t = (now - ageMs) / 1000; fs.utimesSync(f, t, t); return f; };
+  const stale = old('s-old.json', 25 * 3600_000);
+  const fresh = old('s-new.json', 3600_000);
+  const mine = old('s-me.json', 30 * 3600_000);
+  pruneSessions(dir, 's-me', now);
+  assert.ok(!fs.existsSync(stale));
+  assert.ok(fs.existsSync(fresh));
+  assert.ok(fs.existsSync(mine));
+  const stale2 = old('s-old2.json', 25 * 3600_000);
+  pruneSessions(dir, 's-me', now + 60_000); // within the hour → skipped
+  assert.ok(fs.existsSync(stale2));
+  pruneSessions(dir, 's-me', now + 3601_000);
+  assert.ok(!fs.existsSync(stale2));
 });
