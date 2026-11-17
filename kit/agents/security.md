@@ -1,6 +1,6 @@
 ---
 name: security
-description: 보안 BOT. 코드와 설정을 읽기 전용으로 검토해 취약점, 비밀정보 노출, 위험한 의존성, 권한 문제를 찾아 보고한다. 개발 후 QA와 동시에, 그리고 운영 단계에서 설정이 바뀌었을 때 사용한다.
+description: 보안 BOT. /task 진행 중 책임자가 검증 단계와 운영 변경 뒤 재검토 때 배정한다. 코드와 설정을 읽기 전용으로 검토해 보고서를 쓴다.
 tools: Read, Write, Glob, Grep, Bash
 ---
 

@@ -15,9 +15,10 @@ function tmpProject() {
   return dir;
 }
 
-test('kit ships 7 agents and 2 commands', () => {
+test('kit ships 8 agents, 2 commands and the caveman skill with its license', () => {
   const rels = kitFiles().map((f) => f.rel);
-  for (const a of ['planner', 'architect', 'designer', 'developer', 'qa', 'security', 'devops']) {
+  for (const r of ['skills/caveman/SKILL.md', 'skills/caveman/LICENSE', 'skills/caveman/NOTICE']) assert.ok(rels.includes(r), r);
+  for (const a of ['planner', 'architect', 'designer', 'developer', 'qa', 'security', 'devops', 'scribe']) {
     assert.ok(rels.includes(`agents/${a}.md`), a);
   }
   assert.ok(rels.includes('commands/task.md'));
@@ -124,4 +125,30 @@ test('mergeSettings keeps user hooks and permissions', () => {
   assert.deepEqual(once.permissions.deny, ['Read(./.env)', 'Bash(npm publish *)']);
   assert.equal(once.hooks.PreToolUse.length, 2);
   assert.equal(once.hooks.PreToolUse[0].hooks[0].command, 'echo mine');
+});
+
+test('model routing: scribe and devops default to haiku, others inherit, no Agent tool', () => {
+  const fm = (name) => fs.readFileSync(kitFiles().find((f) => f.rel === `agents/${name}.md`).src, 'utf8').split('\n---')[0];
+  for (const n of ['scribe', 'devops']) assert.match(fm(n), /\nmodel: haiku\n?/, n);
+  for (const n of ['planner', 'architect', 'designer', 'developer', 'qa', 'security']) assert.doesNotMatch(fm(n), /\nmodel:/, n);
+  for (const f of kitFiles().filter((x) => x.rel.startsWith('agents/'))) {
+    const tools = fm(f.rel.slice(7, -3)).match(/\ntools: (.*)/)[1];
+    assert.ok(!/\bAgent\b/.test(tools), `${f.rel} must not spawn agents`);
+  }
+});
+
+test('lead process loads caveman and routes devops/scribe', () => {
+  const p = fs.readFileSync(kitFiles().find((f) => f.rel === 'team/process.md').src, 'utf8');
+  const t = fs.readFileSync(kitFiles().find((f) => f.rel === 'commands/task.md').src, 'utf8');
+  assert.match(p, /`caveman`/);
+  assert.match(t, /`caveman`/);
+  assert.match(p, /`scribe`에게/);
+  assert.match(p, /model: "sonnet"/);
+});
+
+test('install copies the caveman skill to .claude/skills', () => {
+  const dir = tmpProject();
+  install(dir, quiet);
+  assert.ok(fs.existsSync(path.join(dir, '.claude/skills/caveman/SKILL.md')));
+  assert.ok(fs.existsSync(path.join(dir, '.claude/skills/caveman/LICENSE')));
 });

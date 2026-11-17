@@ -1,6 +1,6 @@
 # dev-team-kit
 
-Claude Code 서브에이전트로 만든 개발팀 BOT 세트입니다. 책임자 BOT(메인 세션) 1명과 역할 BOT 7명(기획, 아키텍처, 디자인, 개발, QA, 보안, 운영)이 단계별로 협업합니다.
+Claude Code 서브에이전트로 만든 개발팀 BOT 세트입니다. 책임자 BOT(메인 세션) 1명과 역할 BOT 8명(기획, 아키텍처, 디자인, 개발, QA, 보안, 운영, 문서 반영)이 단계별로 협업합니다.
 
 - 어느 프로젝트에나 명령 한 줄로 설치하고, 같은 명령으로 업데이트합니다.
 - 프로젝트마다 다른 점은 설정 파일 하나(`.claude/team/profile.md`)에만 둡니다.
@@ -65,15 +65,29 @@ node ../dev-team-kit/bin/cli.mjs install --target .
 
 ### BOT
 
-| BOT | 파일 | 쓰기 범위 |
-|---|---|---|
-| 기획 | `agents/planner.md` | 문서만. 마지막에 구현 범위 문서와 Task 상태 갱신 |
-| 아키텍처 | `agents/architect.md` | 문서만 |
-| 디자인 | `agents/designer.md` | 디자인 기준 문서, 산출물·보고서 폴더 |
-| 개발 | `agents/developer.md` | 코드. 기능 단위 커밋, push 안 함 |
-| QA | `agents/qa.md` | 테스트 코드와 설정만 |
-| 보안 | `agents/security.md` | 보안 보고서만 (읽기 전용) |
-| 운영 | `agents/devops.md` | 빌드·배포·CI 설정. 실제 배포 안 함 |
+| BOT | 파일 | 모델 | 쓰기 범위 |
+|---|---|---|---|
+| 기획 | `agents/planner.md` | 메인 세션 모델 | 문서만 |
+| 아키텍처 | `agents/architect.md` | 메인 세션 모델 | 문서만 |
+| 디자인 | `agents/designer.md` | 메인 세션 모델 | 디자인 기준 문서, 산출물·보고서 폴더 |
+| 개발 | `agents/developer.md` | 메인 세션 모델 | 코드. 기능 단위 커밋, push 안 함 |
+| QA | `agents/qa.md` | 메인 세션 모델 | 테스트 코드와 설정만 |
+| 보안 | `agents/security.md` | 메인 세션 모델 | 보안 보고서만 (읽기 전용) |
+| 운영 | `agents/devops.md` | **haiku** (배포 구조를 새로 만들거나 바꿀 때는 책임자가 sonnet으로 부름) | 빌드·배포·CI 설정. 실제 배포 안 함 |
+| 문서 반영 | `agents/scribe.md` | **haiku** | 구현 범위 문서와 Task 체크 상태만. 판단이 필요하면 멈추고 보고 |
+
+- 사용량을 줄이려고 정리 작업과 정해진 구조 안의 운영 작업만 haiku로 돌립니다. 결과가 부족하면 에이전트 파일의 `model` 한 줄을 지우거나 바꾸면 됩니다.
+- 책임자가 Agent 도구로 BOT을 부를 때 `model`을 넘기면 에이전트 파일의 값보다 우선합니다.
+- 역할 BOT의 도구 목록에는 Agent가 없어 다른 BOT을 부르지 않습니다. 조율은 책임자만 합니다.
+- BOT 설명(description)은 "`/task` 진행 중 책임자가 배정한다"로 좁혀서, 평소 대화에서 Claude가 알아서 BOT에게 일을 넘기지 않게 했습니다.
+
+### 책임자의 말투 (caveman)
+`/task`를 시작하면 책임자가 [caveman](https://github.com/JuliusBrussee/caveman) 스킬을 불러, 사용자에게 하는 말을 짧게 줄입니다. 산출물은 경로, 판정, 바뀐 결정, 사용자가 할 일만 말하고 내용을 다시 풀어 쓰지 않습니다.
+- 언어는 그대로입니다(한국어 프로젝트면 한국어).
+- 승인 요청, 선택지, 보안 경고, 되돌릴 수 없는 작업 확인은 온전한 문장으로 씁니다.
+- BOT에게 주는 지시와 파일로 남는 것(문서, 보고서, 커밋 메시지)에는 적용하지 않습니다.
+- 줄어드는 것은 책임자의 출력 토큰입니다. 전체 사용량에서의 비중은 크지 않을 수 있습니다.
+- 스킬 파일은 `kit/skills/caveman/`에 원본 그대로 들어 있습니다(Apache-2.0, `LICENSE`와 `NOTICE` 포함).
 
 플랫폼별 점검표(`kit/team/checklists/`)는 profile에 적은 것만 읽습니다.
 - 보안: `security-web`, `security-electron`, `security-node-cli`
@@ -177,7 +191,8 @@ Claude Code는 Windows에서 Git Bash가 있으면 Git Bash로, 없으면 PowerS
 ```
 bin/cli.mjs                 설치 명령
 kit/                        프로젝트의 .claude/ 아래로 복사되는 파일
-  agents/                   역할 BOT 7개
+  agents/                   역할 BOT 8개
+  skills/caveman/           책임자 말투 스킬 (Apache-2.0, 원본 그대로)
   commands/task.md          /task
   commands/team-init.md     /team-init
   settings.json             병합할 hook과 거부 규칙

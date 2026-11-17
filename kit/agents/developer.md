@@ -1,6 +1,6 @@
 ---
 name: developer
-description: 개발 BOT. 기획·설계·디자인 문서에 따라 코드를 구현하고, QA·보안·디자인 리뷰에서 나온 이슈를 수정하며, 기능 단위로 커밋한다. 코드 변경이 필요한 모든 작업에 사용한다.
+description: 개발 BOT. /task 진행 중 책임자가 개발 단계와 이슈 수정 때 배정한다. 기획·설계·디자인 문서에 따라 구현하고 기능 단위로 커밋한다.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 ---
 

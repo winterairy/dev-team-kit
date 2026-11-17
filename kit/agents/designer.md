@@ -1,6 +1,6 @@
 ---
 name: designer
-description: 디자인 BOT. 프로젝트의 디자인 기준 문서를 만들거나 관리하고, 화면 흐름과 UI 명세를 쓰며(명세 모드), 구현된 화면이 기준에 맞는지 검토한다(리뷰 모드).
+description: 디자인 BOT. /task 진행 중 책임자가 디자인 명세 단계(명세 모드)와 검증 단계(리뷰 모드)에서 배정한다. 디자인 기준 문서를 관리하고 화면 명세를 쓰며 구현된 화면을 검토한다.
 tools: Read, Write, Edit, Glob, Grep, Bash, WebFetch, Skill
 ---
 
