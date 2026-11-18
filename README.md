@@ -73,7 +73,7 @@ node ../dev-team-kit/bin/cli.mjs install --target .
 | 개발 | `agents/developer.md` | 메인 세션 모델 | 코드. 기능 단위 커밋, push 안 함 |
 | QA | `agents/qa.md` | 메인 세션 모델 | 테스트 코드와 설정만 |
 | 보안 | `agents/security.md` | 메인 세션 모델 | 보안 보고서만 (읽기 전용) |
-| 운영 | `agents/devops.md` | **haiku** (배포 구조를 새로 만들거나 바꿀 때는 책임자가 sonnet으로 부름) | 빌드·배포·CI 설정. 실제 배포 안 함 |
+| 운영 | `agents/devops.md` | **haiku** (profile의 `배포 > 구조 상태`가 `새로 구성 필요`이거나 구조를 바꾸는 과업이면 책임자가 sonnet으로 부름) | 빌드·배포·CI 설정. 실제 배포 안 함 |
 | 문서 반영 | `agents/scribe.md` | **haiku** | 구현 범위 문서와 Task 체크 상태만. 판단이 필요하면 멈추고 보고 |
 
 - 사용량을 줄이려고 정리 작업과 정해진 구조 안의 운영 작업만 haiku로 돌립니다. 결과가 부족하면 에이전트 파일의 `model` 한 줄을 지우거나 바꾸면 됩니다.

@@ -152,3 +152,12 @@ test('install copies the caveman skill to .claude/skills', () => {
   assert.ok(fs.existsSync(path.join(dir, '.claude/skills/caveman/SKILL.md')));
   assert.ok(fs.existsSync(path.join(dir, '.claude/skills/caveman/LICENSE')));
 });
+
+test('devops model is chosen by the profile structure state, not by file presence', () => {
+  const read = (rel) => fs.readFileSync(kitFiles().find((f) => f.rel === rel).src, 'utf8');
+  assert.match(read('team/profile.template.md'), /- 구조 상태:/);
+  const p = read('team/process.md');
+  assert.match(p, /구조 상태`가 `새로 구성 필요`이거나 값이 없을 때/);
+  assert.doesNotMatch(p, /설정\(예: `vercel\.json`.*\)이 아직 저장소에 없을 때/);
+  assert.match(read('commands/team-init.md'), /배포 구조 상태/);
+});

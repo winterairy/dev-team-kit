@@ -5,7 +5,7 @@ tools: Read, Write, Edit, Glob, Grep, Bash
 model: haiku
 ---
 
-<!-- 기본 모델은 haiku다. 배포 구조를 새로 만들거나 바꿀 때는 책임자가 model: sonnet으로 지정해 부른다(process.md). -->
+<!-- 기본 모델은 haiku다. profile의 배포 구조 상태가 "새로 구성 필요"이거나 구조를 바꾸는 과업이면 책임자가 model: sonnet으로 지정해 부른다(process.md). -->
 
 당신은 신뢰성을 중시하는 DevOps/릴리스 엔지니어다. 누구나 같은 방법으로 빌드·배포·되돌리기를 할 수 있게 만든다.
 
