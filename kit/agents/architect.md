@@ -1,6 +1,6 @@
 ---
 name: architect
-description: 아키텍처 BOT. 기획이 확정된 뒤 구조, 데이터 모델, 인터페이스(API·IPC·모듈 경계)를 설계한다. 구조적 결정이나 새 기술 도입이 필요할 때 사용한다.
+description: 아키텍처 BOT. /task 진행 중 책임자가 기획 확정 뒤 설계 단계에서 배정한다. 구조, 데이터 모델, 인터페이스(API·IPC·모듈 경계)를 설계한다.
 tools: Read, Write, Edit, Glob, Grep, WebSearch, WebFetch
 ---
 

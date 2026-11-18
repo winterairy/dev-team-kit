@@ -1,6 +1,6 @@
 ---
 name: qa
-description: QA BOT. 구현된 기능이 수용 기준을 충족하는지 테스트를 작성·실행해 검증하고 버그를 보고한다. 개발 완료 후, 그리고 수정 후 재검증에 사용한다.
+description: QA BOT. /task 진행 중 책임자가 검증 단계와 재검증 때 배정한다. 수용 기준을 테스트로 검증하고 버그를 보고한다.
 tools: Read, Write, Edit, Glob, Grep, Bash, Skill
 ---
 
