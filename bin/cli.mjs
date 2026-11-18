@@ -20,6 +20,7 @@ const ROOT = path.resolve(path.dirname(SCRIPT_PATH), '..');
 export const KIT_DIR = path.join(ROOT, 'kit');
 export const MANIFEST = 'team/.kit-manifest.json';
 export const OBSERVE_MARK = '/.claude/team/observe/observe.mjs';
+export const GUARD_MARK = '/.claude/team/guard/guard.mjs';
 export const STATUSLINE_MARK = '/.claude/team/observe/statusline.mjs';
 export const STATUSLINE_COMMAND = 'node "${CLAUDE_PROJECT_DIR:-.}/.claude/team/observe/statusline.mjs"';
 export const STATUSLINE_SAVE = 'team/observe/statusline.json'; // under .claude/, not shipped by the kit
@@ -58,9 +59,10 @@ export function kitFiles(kitDir = KIT_DIR) {
 }
 
 function isKitHookGroup(group) {
+  const marks = [OBSERVE_MARK, GUARD_MARK];
   return Array.isArray(group?.hooks) && group.hooks.some((h) =>
-    (Array.isArray(h.args) && h.args.some((a) => String(a).includes(OBSERVE_MARK))) ||
-    String(h.command || '').includes(OBSERVE_MARK));
+    (Array.isArray(h.args) && h.args.some((a) => marks.some((m) => String(a).includes(m)))) ||
+    marks.some((m) => String(h.command || '').includes(m)));
 }
 
 export function isKitStatusLine(sl) {
