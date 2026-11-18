@@ -81,13 +81,26 @@ node ../dev-team-kit/bin/cli.mjs install --target .
 
 ## 실제로 막는 것
 
-`.claude/settings.json`에 거부 규칙을 넣습니다. 지시문과 달리 Claude가 실행할 수 없습니다.
+지시문과 달리 Claude가 실행할 수 없게 두 겹으로 막습니다.
 
-- 강제 push, 기본 브랜치(main·master)로의 push
-- `vercel --prod`, `npm publish` 등 배포·게시
-- `gh release create`, `gh pr merge`
+1. **`.claude/settings.json`의 거부 규칙**: 명령 문자열의 앞부분이 같은 정해진 형태만 막습니다.
+2. **guard hook** (`.claude/team/guard/guard.mjs`, Bash 명령마다 실행): 명령을 단어로 나눠 실제로 무엇을 하려는지 보고 막습니다. 거부 규칙이 놓치는 형태를 이쪽이 잡습니다. 예를 들어 지금 브랜치가 main일 때의 `git push`(인자 없음)는 거부 규칙에 걸리지 않지만 guard는 막습니다.
 
-거부 규칙은 승인으로 풀리지 않습니다. ★승인2 이후의 병합과 배포는 사용자가 직접 하거나(GitHub 화면 등), 그 프로젝트의 규칙을 직접 고친 뒤 진행합니다. 작업 브랜치로의 push는 막지 않습니다.
+막는 것:
+- **push**: 강제 push(`--force`, `-f`, `--force-with-lease`, `+refspec`), `--all`·`--mirror`·와일드카드 push, 태그 push, 기본 브랜치로의 push. 기본 브랜치는 `main`, `master`, profile의 "기본 브랜치", 저장소의 `origin/HEAD`입니다. `git push`나 `git push origin HEAD`는 지금 브랜치를 보고 판단하고, `git -C`와 `cd`도 따라갑니다.
+- **병합·릴리스**: `gh pr merge`, `gh release create`, 그리고 같은 일을 하는 `gh api`(PR 병합·자동 병합, 브랜치 병합, 릴리스 생성, 기본 브랜치·태그 ref 변경, 브랜치를 지정하지 않은 contents 쓰기)와 GraphQL mutation
+- **배포·게시**: `vercel --prod`·`promote`·`rollback`, `npm`·`pnpm`·`yarn`·`bun publish`, `electron-builder --publish`. `npx`·`pnpm dlx`로 돌려도, `bash -c`·`eval`·`$(…)` 안에 넣어도 찾습니다.
+
+막지 않는 것: 작업 브랜치로의 push, PR 만들기와 수정(`gh pr create`, `gh api … pulls`), 작업 브랜치에 대한 API 쓰기, 미리보기 배포(`vercel`·`vercel deploy`), 읽기 명령. 명령 안에 문자열로 들어 있는 `git push origin main`(커밋 메시지, heredoc, `echo`)도 명령이 아니므로 막지 않습니다.
+
+막히면 Claude는 이유를 받고 사용자에게 알립니다. 승인 뒤의 병합과 배포는 사용자가 직접(GitHub 화면, 본인 터미널) 합니다. 직접 하게 하려면 사용자가 `DEV_TEAM_KIT_GUARD=off`를 설정하고 Claude Code를 시작하면 guard가 아무것도 막지 않습니다. 거부 규칙은 그대로 남습니다.
+
+**한계**: 사고를 줄이는 안전장치이지 보안 경계가 아닙니다.
+- 스크립트 파일, 다른 언어(`python`, `node`로 API 호출), 다른 도구로 같은 일을 하는 것은 막지 못합니다.
+- 태그 이름만 지정한 push(`git push origin v1.0.0`)는 브랜치와 구별하지 못해 막지 않습니다. `--tags`와 `refs/tags/…`는 막습니다.
+- Windows에서 Claude Code가 Bash 대신 PowerShell 도구를 쓰면 guard가 실행되지 않습니다.
+- 분석에 실패하거나 지금 브랜치를 알 수 없으면(분리된 HEAD 등) 막지 않습니다.
+- 여러 저장소를 붙인 클라우드 세션과 Projects 스레드에서는 저장소의 hook과 거부 규칙이 모두 적용되지 않습니다.
 
 ## 관찰 서버 연결
 
@@ -185,6 +198,7 @@ kit/                        프로젝트의 .claude/ 아래로 복사되는 파�
   team/profile.template.md  프로젝트 설정 형식
   team/checklists/          플랫폼별 보안·배포 점검표
   team/templates/           상태 파일, DESIGN.md 템플릿
+  team/guard/guard.mjs      강제 push·기본 브랜치 push·병합·배포를 막는 hook
   team/observe/observe.mjs  관찰 서버로 이벤트를 보내는 hook
   team/observe/statusline.mjs  플랜 사용량을 보내는 statusLine
 test/                       node --test
