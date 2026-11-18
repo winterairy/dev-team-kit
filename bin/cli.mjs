@@ -30,6 +30,7 @@ const LAYOUT = [
   { from: 'agents', to: 'agents' },
   { from: 'commands', to: 'commands' },
   { from: 'team', to: 'team' },
+  { from: 'skills', to: 'skills' },
 ];
 
 const sha = (buf) => createHash('sha256').update(buf).digest('hex');

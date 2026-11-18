@@ -1,0 +1,7 @@
+caveman skill
+Copyright 2026 Julius Brussee
+Source: https://github.com/JuliusBrussee/caveman (skills/caveman/SKILL.md, commit 9b243662ff98d392bc0a95b865a554583d71be75)
+Licensed under the Apache License, Version 2.0 (see LICENSE in this folder).
+
+SKILL.md is included unmodified. dev-team-kit loads it only in the /task lead
+session (see .claude/team/process.md).
